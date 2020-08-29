@@ -1,11 +1,16 @@
 import ytdl from 'ytdl-core';
 import fs from 'fs';
+import ffmpeg from 'fluent-ffmpeg'
 import * as stream from 'stream';
 
 import createSelector from './consoleSelector.js';
 import progressBar from './progressBar.js';
 
 const outputDir = './output/'
+const tempDir = './temp/'
+
+ffmpeg.setFfmpegPath('./ffmpeg/bin/ffmpeg.exe');
+ffmpeg.setFfprobePath('./ffmpeg/bin/ffprobe.exe');
 
 const help: string = `Help:
 -l/-link - URL of youtube video
@@ -47,7 +52,7 @@ const downloadStream = (stream: stream.Readable, fileName: string):Promise<boole
         stream.on('end', () => {
             resolve(true);
         });
-        stream.pipe(fs.createWriteStream(outputDir + fileName));
+        stream.pipe(fs.createWriteStream(tempDir + fileName));
     })
 }
 
@@ -92,30 +97,57 @@ const downloadStream = (stream: stream.Readable, fileName: string):Promise<boole
         }
 
         const title: string = info.videoDetails.title;
+        //audio downlaod
+        let audioFileName: string = '';
         if (audioFormat) {
-            const fileName = (videoFormat? 'audio_': '') + title + '.' + audioFormat.container;
+            audioFileName = (videoFormat? 'audio_': '') + title + '.' + audioFormat.container;
             const audioStream = ytdl.downloadFromInfo(info, { format: audioFormat });
             audioStream.on('progress', (_, segmentsDownloaded: number, segments: number) => {
                 progressBar.redrawProgressBar((segmentsDownloaded / segments) * 100, 'Audio download');
             })
             console.log();
             progressBar.drawProgressBar(0, 'Audio download');
-            await downloadStream(audioStream, fileName);
+            await downloadStream(audioStream, audioFileName);
             console.log('Audio downloaded');
         }
+        //video downlaod
+        let videoFileName: string = '';
         if (videoFormat) {
-            const fileName = (audioFormat? 'video_': '') + title + '.' + videoFormat.container;
+            videoFileName = (audioFormat? 'video_': '') + title + '.' + videoFormat.container;
             const videoStream = ytdl.downloadFromInfo(info, { format: videoFormat });
             videoStream.on('progress', (_, segmentsDownloaded: number, segments: number) => {
                 progressBar.redrawProgressBar((segmentsDownloaded / segments) * 100, 'Video download');
             })
             console.log();
             progressBar.drawProgressBar(0, 'Video download');
-            await downloadStream(videoStream, fileName);
+            await downloadStream(videoStream, videoFileName);
             console.log('Video downloaded');
         }
+
+        //putting audio and video into one container
+        if ((videoFormat) && (audioFormat)) {
+            const query = ffmpeg().input(tempDir + videoFileName).input(tempDir + audioFileName).audioCodec('aac').videoCodec('libx264').output(outputDir + title + '.mkv').outputOptions(['-profile:v high', '-level:v 4.0', '-metadata:s:a:0 language=', '-metadata:s:v:0 language=']);
+            query.on('error', err => {
+                console.log('An error occurred: ' + err.message)
+            });
+            query.on('start', () => {
+                console.log();
+                console.log('Processing started!');
+                progressBar.drawProgressBar(0, 'Converting file');
+            });
+            query.on('progress', progress => {
+                progressBar.redrawProgressBar(progress.percent, 'Converting file');
+            });
+            query.on('end', () => {
+                progressBar.redrawProgressBar(100, 'Converting file');
+                console.log('Processing complete!');
+                console.log();
+                console.log('All processing is finished');
+            })
+            query.run();
+        }
+
+    } else {
+        console.log('You must provide URL for video');
     }
-    
-    console.log();
-    console.log('Finished');
 })().catch(err => console.log(err));
