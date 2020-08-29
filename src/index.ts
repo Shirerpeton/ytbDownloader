@@ -14,7 +14,7 @@ ffmpeg.setFfprobePath('./ffmpeg/bin/ffprobe.exe');
 
 const help: string = `Help:
 -l/-link - URL of youtube video
--a/-audio - flag to download only aduio
+-oa/-only-audio - flag to download only aduio
 -hq/-highestquality - flag to choose highest quality for aduio and video if choosen
 -h/-help to get help`;
 
@@ -47,12 +47,22 @@ for (let i = 0; i < args.length; i++) {
     }
 }
 
-const downloadStream = (stream: stream.Readable, fileName: string):Promise<boolean>  => {
+const downloadStream = (stream: stream.Readable, fileName: string): Promise<void> => {
     return new Promise(resolve => {
         stream.on('end', () => {
-            resolve(true);
+            resolve();
         });
         stream.pipe(fs.createWriteStream(tempDir + fileName));
+    })
+}
+
+const convertFiles = (query: ffmpeg.FfmpegCommand): Promise<void> => {
+    return new Promise(resolve => {
+        query.on('end', () => {
+            progressBar.redrawProgressBar(100, 'Converting file');
+            resolve();
+        });
+        query.run();
     })
 }
 
@@ -96,11 +106,16 @@ const downloadStream = (stream: stream.Readable, fileName: string):Promise<boole
             process.exit(0);
         }
 
-        const title: string = info.videoDetails.title;
+        const title: string = (info.videoDetails.title).replace(/[\<\>\:\"\/\\\/\|\?\*]/g, '_');
+        console.log('Title: ');
+        console.log(title);
+
         //audio downlaod
         let audioFileName: string = '';
         if (audioFormat) {
-            audioFileName = (videoFormat? 'audio_': '') + title + '.' + audioFormat.container;
+            audioFileName = 'audio_' + title + '.' + audioFormat.container;
+            console.log('Audio file name: ');
+            console.log(audioFileName);
             const audioStream = ytdl.downloadFromInfo(info, { format: audioFormat });
             audioStream.on('progress', (_, segmentsDownloaded: number, segments: number) => {
                 progressBar.redrawProgressBar((segmentsDownloaded / segments) * 100, 'Audio download');
@@ -110,14 +125,15 @@ const downloadStream = (stream: stream.Readable, fileName: string):Promise<boole
             await downloadStream(audioStream, audioFileName);
             console.log('Audio downloaded');
         }
+
         //video downlaod
         let videoFileName: string = '';
         if (videoFormat) {
-            videoFileName = (audioFormat? 'video_': '') + title + '.' + videoFormat.container;
+            videoFileName = 'video_' + title + '.' + videoFormat.container;
             const videoStream = ytdl.downloadFromInfo(info, { format: videoFormat });
             videoStream.on('progress', (_, segmentsDownloaded: number, segments: number) => {
                 progressBar.redrawProgressBar((segmentsDownloaded / segments) * 100, 'Video download');
-            })
+            });
             console.log();
             progressBar.drawProgressBar(0, 'Video download');
             await downloadStream(videoStream, videoFileName);
@@ -125,8 +141,14 @@ const downloadStream = (stream: stream.Readable, fileName: string):Promise<boole
         }
 
         //putting audio and video into one container
-        if ((videoFormat) && (audioFormat)) {
-            const query = ffmpeg().input(tempDir + videoFileName).input(tempDir + audioFileName).audioCodec('aac').videoCodec('libx264').output(outputDir + title + '.mkv').outputOptions(['-profile:v high', '-level:v 4.0', '-metadata:s:a:0 language=', '-metadata:s:v:0 language=']);
+        if (videoFormat) {
+            const query = ffmpeg().input(tempDir + videoFileName).videoCodec('libx264');
+            let outputOptions = ['-metadata:s:v:0 language='];
+            if (audioFormat) {
+                query.input(tempDir + audioFileName).audioCodec('aac');
+                outputOptions = [...outputOptions, '-profile:v high', '-level:v 4.0', '-metadata:s:a:0 language='];
+            }
+            query.output(outputDir + title + '.mkv').outputOptions(outputOptions);
             query.on('error', err => {
                 console.log('An error occurred: ' + err.message)
             });
@@ -138,15 +160,26 @@ const downloadStream = (stream: stream.Readable, fileName: string):Promise<boole
             query.on('progress', progress => {
                 progressBar.redrawProgressBar(progress.percent, 'Converting file');
             });
-            query.on('end', () => {
-                progressBar.redrawProgressBar(100, 'Converting file');
-                console.log('Processing complete!');
+            await convertFiles(query);
+            console.log('Processing complete');
+        } else if (audioFormat) {
+            const query = ffmpeg().input(tempDir + audioFileName).audioCodec('mp3').output(outputDir + title + '.mp3').outputOptions('-profile:v high', '-level:v 4.0', '-metadata:s:a:0 language=');
+            query.on('error', err => {
+                console.log('An error occurred: ' + err.message)
+            });
+            query.on('start', () => {
                 console.log();
-                console.log('All processing is finished');
-            })
-            query.run();
+                console.log('Processing started!');
+                progressBar.drawProgressBar(0, 'Converting file');
+            });
+            query.on('progress', progress => {
+                progressBar.redrawProgressBar(progress.percent, 'Converting file');
+            });
+            await convertFiles(query);
+            console.log('Processing complete');
         }
-
+        console.log();
+        console.log('All processing is finished');
     } else {
         console.log('You must provide URL for video');
     }
