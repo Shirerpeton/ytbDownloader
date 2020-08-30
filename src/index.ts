@@ -15,12 +15,25 @@ ffmpeg.setFfprobePath('./ffmpeg/bin/ffprobe.exe');
 const help: string = `Help:
 -l/-link - URL of youtube video
 -oa/-only-audio - flag to download only aduio
--hq/-highestquality - flag to choose highest quality for aduio and video if choosen
+-hq/-highest-quality - flag to choose highest quality for aduio and video if choosen
+-af/-aduio-format - choose audio format for audio only files (aac, mp3 | default: mp3)
+-cf/-container-format - choose format of container (mkv, mp4 | default: mkv) 
 -h/-help to get help`;
 
+enum audioExtensions {
+    mp3 = 'mp3',
+    aac = 'aac'
+}
+
+enum videoExtensions {
+    mkv = 'mkv',
+    mp4 = 'mp4'
+}
 
 const args: Array<string> = process.argv.slice(2);
-let link: string = '';//, onlyAudio = false;//, highestQuality = false;
+let link: string = '', onlyAudio: boolean = false, highestQuality: boolean = false;
+let audioExtension: audioExtensions = audioExtensions.mp3;
+let videoExtension: videoExtensions = videoExtensions.mkv;
 
 for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -33,13 +46,31 @@ for (let i = 0; i < args.length; i++) {
             i++;
             link = args[i];
             break;
-        case '-a':
-        case '-a':
-            //onlyAudio = true;
+        case '-oa':
+        case '-only-audio':
+            onlyAudio = true;
             break;
         case '-hq':
-        case '-highestquality':
-            //highestQuality = true;
+        case '-highest-quality':
+            highestQuality = true;
+            break;
+        case '-cf':
+        case '-container-format':
+            i++;
+            if (args[i] === 'mkv') {
+                videoExtension = videoExtensions.mkv;
+            } else if (args[i] === 'mp4') {
+                videoExtension = videoExtensions.mp4;
+            }
+            break;
+        case '-af':
+        case '-audio-format':
+            i++;
+            if (args[i] === 'aac') {
+                audioExtension = audioExtensions.aac;
+            } else if (args[i] === 'mp3') {
+                audioExtension = audioExtensions.mp3;
+            }
             break;
         default:
             console.log('Use -h/-help for help');
@@ -52,7 +83,7 @@ const downloadStream = (stream: stream.Readable, fileName: string): Promise<void
         stream.on('end', () => {
             resolve();
         });
-        stream.pipe(fs.createWriteStream(tempDir + fileName));
+        stream.pipe(fs.createWriteStream(fileName));
     })
 }
 
@@ -122,7 +153,7 @@ const convertFiles = (query: ffmpeg.FfmpegCommand): Promise<void> => {
             })
             console.log();
             progressBar.drawProgressBar(0, 'Audio download');
-            await downloadStream(audioStream, audioFileName);
+            await downloadStream(audioStream, tempDir + audioFileName);
             console.log('Audio downloaded');
         }
 
@@ -136,19 +167,30 @@ const convertFiles = (query: ffmpeg.FfmpegCommand): Promise<void> => {
             });
             console.log();
             progressBar.drawProgressBar(0, 'Video download');
-            await downloadStream(videoStream, videoFileName);
+            await downloadStream(videoStream, tempDir + videoFileName);
             console.log('Video downloaded');
         }
 
-        //putting audio and video into one container
+        //converting audio and video streams and putting them into one container if necessary
         if (videoFormat) {
             const query = ffmpeg().input(tempDir + videoFileName).videoCodec('libx264');
             let outputOptions = ['-metadata:s:v:0 language='];
             if (audioFormat) {
-                query.input(tempDir + audioFileName).audioCodec('aac');
+                let audioBitrate: string = '128k';
+                if (audioFormat.audioBitrate) {
+                    if (audioFormat.audioBitrate <= 64)
+                        audioBitrate = '64k';
+                    else if (audioFormat.audioBitrate <= 128)
+                        audioBitrate = '128k';
+                    else if (audioFormat.audioBitrate <= 160)
+                        audioBitrate = '160k';
+                    else if (audioFormat.audioBitrate <= 256)
+                        audioBitrate = '256k';
+                }
+                query.input(tempDir + audioFileName).audioCodec('aac').audioBitrate(audioBitrate);
                 outputOptions = [...outputOptions, '-profile:v high', '-level:v 4.0', '-metadata:s:a:0 language='];
             }
-            query.output(outputDir + title + '.mkv').outputOptions(outputOptions);
+            query.output(outputDir + title + '.' + videoExtension).outputOptions(outputOptions);
             query.on('error', err => {
                 console.log('An error occurred: ' + err.message)
             });
@@ -163,7 +205,24 @@ const convertFiles = (query: ffmpeg.FfmpegCommand): Promise<void> => {
             await convertFiles(query);
             console.log('Processing complete');
         } else if (audioFormat) {
-            const query = ffmpeg().input(tempDir + audioFileName).audioCodec('mp3').output(outputDir + title + '.mp3').outputOptions('-profile:v high', '-level:v 4.0', '-metadata:s:a:0 language=');
+            console.log('Audio only');
+            console.log(outputDir + title + '.' + audioExtension);
+            const query = ffmpeg().input(tempDir + audioFileName).noVideo();
+            let audioBitrate: string = '128k';
+            if (audioFormat.audioBitrate) {
+                if (audioFormat.audioBitrate <= 64)
+                    audioBitrate = '64k';
+                else if (audioFormat.audioBitrate <= 128)
+                    audioBitrate = '128k';
+                else if (audioFormat.audioBitrate <= 160)
+                    audioBitrate = '160k';
+                else if (audioFormat.audioBitrate <= 256)
+                    audioBitrate = '256k';
+            }
+            if (audioExtension === audioExtensions.aac)
+                query.audioCodec('aac').audioBitrate(audioBitrate).output(outputDir + title + '.' + audioExtension).outputOptions(['-profile:v high', '-level:v 4.0', '-metadata:s:a:0 language=']);
+            else (audioExtension === audioExtensions.mp3)
+            query.audioBitrate(audioBitrate).output(outputDir + title + '.' + audioExtension);
             query.on('error', err => {
                 console.log('An error occurred: ' + err.message)
             });
@@ -176,6 +235,7 @@ const convertFiles = (query: ffmpeg.FfmpegCommand): Promise<void> => {
                 progressBar.redrawProgressBar(progress.percent, 'Converting file');
             });
             await convertFiles(query);
+            console.log();
             console.log('Processing complete');
         }
         console.log();
