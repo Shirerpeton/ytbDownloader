@@ -134,7 +134,7 @@ const convertFiles = (query: ffmpeg.FfmpegCommand): Promise<void> => {
         let videoFormatIndex: number = 0;
         if (!highestQuality) {
             const videoSelector = createSelector('Select video track', ['0: None', ...videoFormatsNames]);
-            const videoFormatIndex: number = await videoSelector.select();
+            videoFormatIndex = await videoSelector.select();
         } else
             videoFormatIndex = 1;
         if (videoFormatIndex === 0)
