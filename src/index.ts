@@ -31,7 +31,7 @@ enum videoExtensions {
 }
 
 const args: Array<string> = process.argv.slice(2);
-let link: string = '', onlyAudio: boolean = false, highestQuality: boolean = false;
+let link: string = '', audioOny: boolean = false, highestQuality: boolean = false;
 let audioExtension: audioExtensions = audioExtensions.mp3;
 let videoExtension: videoExtensions = videoExtensions.mkv;
 
@@ -48,7 +48,7 @@ for (let i = 0; i < args.length; i++) {
             break;
         case '-oa':
         case '-only-audio':
-            onlyAudio = true;
+            audioOny = true;
             break;
         case '-hq':
         case '-highest-quality':
@@ -111,21 +111,32 @@ const convertFiles = (query: ffmpeg.FfmpegCommand): Promise<void> => {
 
         // audio track selelction
         let audioFormat: ytdl.videoFormat | null;
-        const audioFormats: ytdl.videoFormat[] = ytdl.filterFormats(info.formats, 'audioonly');
-        const audioFormatsNames: string[] = audioFormats.map((format, ind) => `${String(ind + 1)}: audio bitrate: ${format.audioBitrate}; audio quality: ${format.audioQuality}; aduioChannels: ${format.audioChannels}`);
-        const audioSelector = createSelector('Select audio track', ['0: None', ...audioFormatsNames]);
-        const audioFormatIndex: number = await audioSelector.select();
-        if (audioFormatIndex === 0)
+        if (!audioOny) {
+            const audioFormats: ytdl.videoFormat[] = ytdl.filterFormats(info.formats, 'audioonly');
+            const audioFormatsNames: string[] = audioFormats.map((format, ind) => `${String(ind + 1)}: audio bitrate: ${format.audioBitrate}; audio quality: ${format.audioQuality}; aduioChannels: ${format.audioChannels}`);
+            let audioFormatIndex: number = 0;
+            if (!highestQuality) {
+                const audioSelector = createSelector('Select audio track', ['0: None', ...audioFormatsNames]);
+                audioFormatIndex = await audioSelector.select();
+            } else
+                audioFormatIndex = 1;
+            if (audioFormatIndex === 0)
+                audioFormat = null;
+            else
+                audioFormat = audioFormats[audioFormatIndex - 1];
+        } else
             audioFormat = null;
-        else
-            audioFormat = audioFormats[audioFormatIndex - 1];
 
         // video track selection
         let videoFormat: ytdl.videoFormat | null;
         const videoFormats: ytdl.videoFormat[] = ytdl.filterFormats(info.formats, 'videoonly');
         const videoFormatsNames: string[] = videoFormats.map((format, ind) => `${String(ind + 1)}: video bitrate: ${format.bitrate}; width: ${format.width}; height: ${format.height}; fps: ${format.fps}; quality: ${format.quality}`);
-        const videoSelector = createSelector('Select video track', ['0: None', ...videoFormatsNames]);
-        const videoFormatIndex: number = await videoSelector.select();
+        let videoFormatIndex: number = 0;
+        if (!highestQuality) {
+            const videoSelector = createSelector('Select video track', ['0: None', ...videoFormatsNames]);
+            const videoFormatIndex: number = await videoSelector.select();
+        } else
+            videoFormatIndex = 1;
         if (videoFormatIndex === 0)
             videoFormat = null;
         else
