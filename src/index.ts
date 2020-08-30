@@ -216,8 +216,6 @@ const convertFiles = (query: ffmpeg.FfmpegCommand): Promise<void> => {
             await convertFiles(query);
             console.log('Processing complete');
         } else if (audioFormat) {
-            console.log('Audio only');
-            console.log(outputDir + title + '.' + audioExtension);
             const query = ffmpeg().input(tempDir + audioFileName).noVideo();
             let audioBitrate: string = '128k';
             if (audioFormat.audioBitrate) {
@@ -249,6 +247,10 @@ const convertFiles = (query: ffmpeg.FfmpegCommand): Promise<void> => {
             console.log();
             console.log('Processing complete');
         }
+        if (audioFormat)
+            await fs.promises.unlink(tempDir + audioFileName);
+        if (videoFormat)
+            await fs.promises.unlink(tempDir + videoFileName);
         console.log();
         console.log('All processing is finished');
     } else {
